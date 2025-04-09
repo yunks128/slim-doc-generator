@@ -89,21 +89,21 @@ class AIEnhancer:
             Enhancement prompt
         """
         prompt_templates = {
-            "overview": "Enhance this project overview to be more comprehensive and user-friendly "
+            "overview": "Format markdown. Fix errors. Enhance this project overview to be more comprehensive and user-friendly "
                       "while maintaining accuracy. Add clear sections for features, use cases, and key "
                       "concepts if they're not already present: ",
             
-            "installation": "Improve this installation guide by adding clear prerequisites, "
+            "installation": "Format markdown. Fix errors. Improve this installation guide by adding clear prerequisites, "
                           "troubleshooting tips, and platform-specific instructions while "
                           "maintaining accuracy: ",
             
-            "api": "Enhance this API documentation by adding more detailed descriptions, usage "
+            "api": "Format markdown. Fix errors. Enhance this API documentation by adding more detailed descriptions, usage "
                   "examples, and parameter explanations while maintaining technical accuracy: ",
             
-            "development": "Improve this development guide by adding more context, best practices, "
+            "development": "Format markdown. Fix errors. Improve this development guide by adding more context, best practices, "
                          "and workflow descriptions while maintaining accuracy: ",
             
-            "contributing": "Enhance these contributing guidelines by adding more specific examples, "
+            "contributing": "Format markdown. Fix errors. Enhance these contributing guidelines by adding more specific examples, "
                           "workflow descriptions, and best practices while maintaining accuracy: "
         }
         
@@ -118,7 +118,8 @@ class AIEnhancer:
             "You are a technical documentation specialist helping to improve software documentation. "
             "Your job is to enhance the provided documentation while maintaining factual accuracy. "
             "Improve clarity, organization, and comprehensiveness. "
-            "Add examples where helpful. Format using markdown."
+            "Add examples where helpful. Format using markdown." \
+            "Fix any error for docusaurus website."
         )
         
         # Return full prompt

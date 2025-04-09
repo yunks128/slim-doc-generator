@@ -4,8 +4,8 @@ Main generator class for the SLIM Documentation Generator.
 import logging
 import os
 import shutil
-import subprocess
-from typing import Dict, Optional
+import re
+from typing import Dict, List, Optional, Tuple, Union
 
 from slim_doc_generator.analyzer.repo_analyzer import RepoAnalyzer
 from slim_doc_generator.content.overview_generator import OverviewGenerator
@@ -16,7 +16,8 @@ from slim_doc_generator.content.contributing_generator import ContributingGenera
 from slim_doc_generator.enhancer.ai_enhancer import AIEnhancer
 from slim_doc_generator.template.template_manager import TemplateManager
 from slim_doc_generator.template.config_updater import ConfigUpdater
-from slim_doc_generator.utils.helpers import load_config, run_command
+from slim_doc_generator.site_reviser import SiteReviser
+from slim_doc_generator.utils.helpers import load_config, escape_mdx_special_characters, clean_api_doc
 
 
 class SlimDocGenerator:
@@ -26,59 +27,168 @@ class SlimDocGenerator:
     
     def __init__(
         self, 
-        target_repo_path: str, 
+        target_repo_path: Optional[str],
         output_dir: str,
         template_repo: str = "https://github.com/NASA-AMMOS/slim-docsite-template.git",
         use_ai: Optional[str] = None,
         config_file: Optional[str] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        template_only: bool = False,
+        revise_site: bool = False
     ):
         """
         Initialize the SLIM documentation generator.
         
         Args:
-            target_repo_path: Path to the target repository to document
+            target_repo_path: Path to the target repository to document (optional if template_only is True)
             output_dir: Directory where the documentation site will be generated
             template_repo: URL or path to the template repository
             use_ai: Optional AI model to use for content enhancement (format: provider/model)
             config_file: Optional path to configuration file
             verbose: Whether to enable verbose logging
+            template_only: Whether to generate only the template structure without analyzing a repository
+            revise_site: Whether to revise the site landing page based on documentation content
         """
         # Set up logging
         self.logger = logging.getLogger("slim-doc-generator")
         
         # Set properties
-        self.target_repo_path = os.path.abspath(target_repo_path)
         self.output_dir = os.path.abspath(output_dir)
         self.template_repo = template_repo
         self.use_ai = use_ai
         self.config = load_config(config_file) if config_file else {}
         self.verbose = verbose
+        self.template_only = template_only
+        self.revise_site = revise_site
         
-        # Validate target repository
-        if not os.path.exists(target_repo_path):
-            raise ValueError(f"Target repository path does not exist: {target_repo_path}")
-        
-        # Initialize components
-        self.analyzer = RepoAnalyzer(target_repo_path, self.logger)
+        # Initialize the template manager first 
+        # since it's needed regardless of whether we're analyzing a repo
         self.template_manager = TemplateManager(template_repo, output_dir, self.logger)
         self.config_updater = ConfigUpdater(output_dir, self.logger)
         
-        # Initialize content generators
-        self.content_generators = {
-            "overview": OverviewGenerator(self.target_repo_path, self.logger),
-            "installation": InstallationGenerator(self.target_repo_path, self.logger),
-            "api": ApiGenerator(self.target_repo_path, self.logger),
-            "development": DevelopmentGenerator(self.target_repo_path, self.logger),
-            "contributing": ContributingGenerator(self.target_repo_path, self.logger)
-        }
+        # Initialize site reviser if needed
+        self.site_reviser = SiteReviser(output_dir, self.logger) if revise_site else None
         
         # Initialize AI enhancer if enabled
         self.ai_enhancer = AIEnhancer(use_ai, self.logger) if use_ai else None
         
-        self.logger.info(f"Initialized SLIM Doc Generator for {os.path.basename(target_repo_path)}")
+        # Only initialize repo-specific components if we have a target repo
+        if target_repo_path:
+            self.target_repo_path = os.path.abspath(target_repo_path)
+            
+            # Validate target repository
+            if not os.path.exists(target_repo_path):
+                raise ValueError(f"Target repository path does not exist: {target_repo_path}")
+            
+            # Initialize analyzer and content generators
+            self.analyzer = RepoAnalyzer(target_repo_path, self.logger)
+            
+            # Initialize content generators
+            self.content_generators = {
+                "overview": OverviewGenerator(self.target_repo_path, self.logger),
+                "installation": InstallationGenerator(self.target_repo_path, self.logger),
+                "api": ApiGenerator(self.target_repo_path, self.logger),
+                "development": DevelopmentGenerator(self.target_repo_path, self.logger),
+                "contributing": ContributingGenerator(self.target_repo_path, self.logger)
+            }
+            
+            self.logger.info(f"Initialized SLIM Doc Generator for {os.path.basename(target_repo_path)}")
+        else:
+            # Template-only mode
+            if not template_only:
+                raise ValueError("Target repository path is required unless template_only is True")
+                
+            self.target_repo_path = None
+            self.analyzer = None
+            self.content_generators = None
+            
+            self.logger.info(f"Initialized SLIM Doc Generator in template-only mode")
     
-
+    def _generate_template_only(self) -> None:
+        """
+        Generate the template structure and apply AI enhancement if requested.
+        In template-only mode, we preserve the exact template structure as provided
+        and only modify content if AI enhancement is enabled.
+        """
+        self.logger.info("Generating template structure")
+        
+        # No AI enhancement, just return without modifying the template
+        if not self.ai_enhancer:
+            self.logger.info(f"Template structure generated at {self.output_dir}")
+            self.logger.info("The template has been generated without any modifications.")
+            return
+            
+        # Apply AI enhancement to existing content in the template
+        self.logger.info("Applying AI enhancement to template content")
+        
+        # Look for markdown files in the docs directory
+        docs_dir = os.path.join(self.output_dir, 'docs')
+        if not os.path.exists(docs_dir):
+            self.logger.warning("Docs directory not found in template")
+            return
+            
+        # Find all markdown files in the docs directory
+        md_files = []
+        for root, _, files in os.walk(docs_dir):
+            for file in files:
+                if file.endswith('.md') or file.endswith('.mdx'):
+                    md_files.append(os.path.join(root, file))
+        
+        if not md_files:
+            self.logger.warning("No markdown files found in template docs directory")
+            return
+            
+        # Enhance each markdown file with AI
+        for md_file in md_files:
+            try:
+                file_name = os.path.basename(md_file)
+                rel_path = os.path.relpath(md_file, self.output_dir)
+                self.logger.info(f"Enhancing content in {rel_path}")
+                
+                # Read the file content
+                with open(md_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Extract frontmatter if present
+                frontmatter = {}
+                if content.startswith('---'):
+                    frontmatter_end = content.find('---', 3)
+                    if frontmatter_end > 0:
+                        frontmatter_content = content[3:frontmatter_end].strip()
+                        # Parse frontmatter (simplified)
+                        for line in frontmatter_content.split('\n'):
+                            if ':' in line:
+                                key, value = line.split(':', 1)
+                                frontmatter[key.strip()] = value.strip()
+                        
+                        # Extract the main content after frontmatter
+                        main_content = content[frontmatter_end + 3:].strip()
+                else:
+                    main_content = content
+                
+                # Enhance the content with AI
+                section_id = frontmatter.get('id', os.path.splitext(file_name)[0])
+                enhanced_content = self.ai_enhancer.enhance(main_content, section_id)
+                
+                # Reconstruct the file with frontmatter
+                if frontmatter:
+                    output_content = "---\n"
+                    for key, value in frontmatter.items():
+                        output_content += f"{key}: {value}\n"
+                    output_content += "---\n\n" + enhanced_content
+                else:
+                    output_content = enhanced_content
+                
+                # Write the enhanced content back
+                with open(md_file, 'w', encoding='utf-8') as f:
+                    f.write(output_content)
+                    
+                self.logger.info(f"Enhanced content in {rel_path}")
+                
+            except Exception as e:
+                self.logger.error(f"Error enhancing content in {os.path.basename(md_file)}: {str(e)}")
+        
+        self.logger.info(f"Template structure generated and enhanced at {self.output_dir}")
 
     def generate(self) -> bool:
         """
@@ -92,6 +202,18 @@ class SlimDocGenerator:
             if not self.template_manager.clone_template():
                 return False
             
+            # For template-only mode, we're done after applying AI enhancement
+            if self.template_only:
+                self._generate_template_only()
+                
+                # Apply site revision if requested
+                if self.revise_site and self.site_reviser:
+                    self.site_reviser.revise()
+                    
+                return True
+            
+            # If we're here, we're not in template-only mode, so proceed with content generation
+                
             # Step 2: Analyze the target repository
             repo_info = self.analyzer.analyze()
             
@@ -108,6 +230,8 @@ class SlimDocGenerator:
                 "contributing": "Contributing"
             }
             
+            api_doc_path = None  # Track the API doc path for special cleaning
+            
             for section_id, section_title in sections.items():
                 # Generate content
                 generator = self.content_generators[section_id]
@@ -119,6 +243,9 @@ class SlimDocGenerator:
                 
                 # Write to file if content was generated
                 if content:
+                    # Escape special characters that might cause MDX parsing issues
+                    content = escape_mdx_special_characters(content)
+                    
                     file_path = os.path.join(docs_dir, f"{section_id}.md")
                     with open(file_path, 'w') as f:
                         # Add frontmatter
@@ -128,6 +255,15 @@ class SlimDocGenerator:
                         f.write("---\n\n")
                         f.write(content)
                     self.logger.info(f"Generated {section_id} content")
+                    
+                    # Special handling for API doc - save path for additional cleaning
+                    if section_id == "api":
+                        api_doc_path = file_path
+            
+            # Apply additional cleaning to the API documentation
+            if api_doc_path:
+                clean_api_doc(api_doc_path)
+                self.logger.info("Applied additional cleaning to API documentation")
             
             # Step 5: Generate index.md
             self._generate_index(repo_info, docs_dir)
@@ -145,6 +281,10 @@ class SlimDocGenerator:
             # Step 8: Verify the structure is correct for Docusaurus
             self._verify_docusaurus_structure()
             
+            # Step 9: Revise the site landing page if requested
+            if self.revise_site and self.site_reviser:
+                self.site_reviser.revise()
+            
             self.logger.info(f"Documentation successfully generated at {self.output_dir}")
             return True
             
@@ -154,7 +294,6 @@ class SlimDocGenerator:
                 import traceback
                 self.logger.debug(traceback.format_exc())
             return False
-        
 
     def _generate_index(self, repo_info: Dict, docs_dir: str) -> None:
         """
@@ -195,6 +334,10 @@ class SlimDocGenerator:
         if os.path.exists(os.path.join(docs_dir, "contributing.md")):
             content.append("- [Contributing](contributing.md)")
         
+        # Join content and escape special characters
+        index_content = "\n".join(content)
+        index_content = escape_mdx_special_characters(index_content)
+        
         # Write to file
         with open(os.path.join(docs_dir, 'index.md'), 'w') as f:
             f.write("---\n")
@@ -202,7 +345,7 @@ class SlimDocGenerator:
             f.write("id: index\n")
             f.write(f"title: {project_name} Documentation\n")
             f.write("---\n\n")
-            f.write("\n".join(content))
+            f.write(index_content)
         
         self.logger.info("Generated index.md")
         
@@ -213,6 +356,10 @@ class SlimDocGenerator:
         This method checks for common issues in the Docusaurus structure
         and attempts to fix them to prevent errors during build/runtime.
         """
+        # Skip verification in template-only mode to avoid modifying the template
+        if self.template_only:
+            return
+            
         # Check 1: Ensure the docs directory contains an index.md file
         docs_dir = os.path.join(self.output_dir, 'docs')
         index_path = os.path.join(docs_dir, 'index.md')
@@ -277,33 +424,3 @@ class SlimDocGenerator:
             os.makedirs(img_dir, exist_ok=True)
             
         self.logger.info("Verified Docusaurus structure")
-
-
-    
-    def install_dependencies(self) -> bool:
-        """
-        Install the dependencies for the generated documentation site.
-        
-        Returns:
-            True if installation was successful, False otherwise
-        """
-        try:
-            self.logger.info("Installing dependencies")
-            return run_command(["npm", "install"], self.output_dir, self.logger)
-        except Exception as e:
-            self.logger.error(f"Error installing dependencies: {str(e)}")
-            return False
-    
-    def start_server(self) -> bool:
-        """
-        Start the development server for the generated documentation site.
-        
-        Returns:
-            True if server was started successfully, False otherwise
-        """
-        try:
-            self.logger.info("Starting development server")
-            return run_command(["npm", "start"], self.output_dir, self.logger)
-        except Exception as e:
-            self.logger.error(f"Error starting server: {str(e)}")
-            return False

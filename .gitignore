@@ -128,3 +128,6 @@ node_modules/
 
 # Environment variables
 .env
+
+# additional files
+prompt.txt

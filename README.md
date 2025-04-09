@@ -1,6 +1,6 @@
 # SLIM Documentation Generator
 
-A powerful tool that automatically generates comprehensive documentation sites for software projects using the SLIM docsite template and AI enhancement.
+A tool that automatically generates comprehensive documentation sites for software projects using the SLIM docsite template and AI enhancement.
 
 ## Features
 
@@ -13,26 +13,39 @@ A powerful tool that automatically generates comprehensive documentation sites f
 ## Installation
 
 ```bash
-# Install from PyPI
-pip install slim-doc-generator
-
-# Install from source
+# Install from source with a virtual environment
 git clone https://github.com/NASA-AMMOS/slim-doc-generator.git
 cd slim-doc-generator
+
+# Create a virtual environment
+python -m venv venv
+
+# Activate the virtual environment
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install the package in development mode
 pip install -e .
 ```
 
 ## Quick Start
 
 ```bash
-# Basic usage
-slim-doc-generator /path/to/your/repo --output-dir ./docs-site
+# Just template generation 
+# without specifying target repo
+slim-doc-generator --template-only --output-dir ./docs-site
 
 # With AI enhancement
-slim-doc-generator /path/to/your/repo --use-ai "openai/gpt-4o"
+slim-doc-generator /path/to/your/repo --output-dir ./docs-site --use-ai "openai/gpt-4o-mini"
+# Example
+slim-doc-generator ../hysds --output-dir ../hysds-docs-site5 --use-ai "openai/gpt-4o-mini"
 
-# Install dependencies and start the server
-slim-doc-generator /path/to/your/repo --install --start
+# Revise an existing documentation site's landing page (index.js, HomepageFeatures/index.js, docusaurus.config.js)
+slim-doc-generator --revise-site --output-dir ./docs-site --use-ai "openai/gpt-4o-mini"
+# Example
+slim-doc-generator --revise-site --output-dir ../hysds-docs-site5 --use-ai "openai/gpt-4o-mini"
 ```
 
 ## Requirements
