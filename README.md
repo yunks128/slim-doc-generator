@@ -46,6 +46,9 @@ slim-doc-generator ../hysds --output-dir ../hysds-docs-site5 --use-ai "openai/gp
 slim-doc-generator --revise-site --output-dir ./docs-site --use-ai "openai/gpt-4o-mini"
 # Example
 slim-doc-generator --revise-site --output-dir ../hysds-docs-site5 --use-ai "openai/gpt-4o-mini"
+# You can use a local model! 
+slim-doc-generator --revise-site --output-dir ../hysds-docs-site5 --use-ai "ollama/gemma3:27b"
+
 ```
 
 ## Requirements
